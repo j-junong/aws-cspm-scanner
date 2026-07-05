@@ -1,5 +1,7 @@
 import boto3
 
+from models import Finding
+
 def check_s3_public_access_block(session):
     """Check if bucket can be accessed by the public"""
     s3 = session.client("s3")
@@ -19,7 +21,17 @@ def check_s3_public_access_block(session):
                 raise
 
         if not fully_blocked:
-            findings.append(f"Bucket '{name}' does not block all public access.")
+            findings.append(Finding(
+                check_id="CIS-2.1.4",
+                resource=name,
+                severity=3,
+                description=f"Bucket '{name}' does not block all public access.",
+                remediation=(
+                    f"Enable all four Block Public Access settings on bucket "
+                    f"'{name}' (S3 console > bucket > Permissions, or "
+                    f"aws s3api put-public-access-block)"
+                )
+            ))
 
     return findings
 
@@ -28,8 +40,13 @@ if __name__ == "__main__":
     findings = check_s3_public_access_block(session)
 
     if findings:
+        # Highest severity is prioritized
+        findings.sort(key=lambda x: x.severity, reverse=True)
+
         print(f"{len(findings)} findings:")
-        for finding in findings:
-            print(f"  - {finding}")
+        for f in findings:
+            print(f"[SEV {f.severity}] {f.check_id} {f.resource}")
+            print(f"  - {f.description}")
+            print(f"  - {f.remediation}")
     else:
         print("All buckets compliant")
