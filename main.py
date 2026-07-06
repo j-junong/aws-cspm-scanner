@@ -1,4 +1,6 @@
 import boto3
+from moto.utilities import paginator
+from requests import session
 
 from models import Finding
 from datetime import datetime, timezone
@@ -84,12 +86,63 @@ def check_access_key_age(session, max_age=90):
 
     return findings
 
+def check_open_ssh(session, port=22):
+    """Flag security groups allowing ingress to port from the entire internet"""
+    ec2 = session.client("ec2", region_name="ap-southeast-2")
+    findings = []
+
+    regions = ec2.describe_regions()['Regions']
+    for region in regions:
+        regional_client = session.client("ec2", region_name=region['RegionName'])
+        paginator = regional_client.get_paginator("describe_security_groups")
+        for page in paginator.paginate():
+            for group in page['SecurityGroups']:
+                for rule in group['IpPermissions']: # If port is out of range then it is secure
+                    if not (rule.get("FromPort", 0) <= port <= rule.get("ToPort", 65535)):
+                        continue
+                    for ip in rule.get("IpRanges", []):
+                        if ip["CidrIp"] == "0.0.0.0/0":
+                            findings.append(Finding(
+                                check_id="CIS-5.3",
+                                resource=f"{group['GroupName']} ({group['GroupId']}, {region['RegionName']})",
+                                severity=4,
+                                description=(
+                                    "Security groups allow ingress from 0.0.0.0/0 to remote "
+                                    "server administration ports"
+                                ),
+                                remediation="Restrict the source CIDR to known ranges or remove the rule",
+                                steps=(
+                                    f"(Search Bar > EC2 > Security Groups > {group['GroupId']} > "
+                                    "Inbound rules > Edit inbound rules > Configure appropriate rules)"
+                                )
+                            ))
+                    for ipv6 in rule.get("Ipv6Ranges", []):
+                        if ipv6["CidrIpv6"] == "::/0":
+                            findings.append(Finding(
+                                check_id="CIS-5.4",
+                                resource=f"{group['GroupName']} ({group['GroupId']}, {region['RegionName']})",
+                                severity=4,
+                                description=(
+                                    "Security groups allow ingress from ::/0 to remote "
+                                    "server administration ports"
+                                ),
+                                remediation="Restrict the source CIDR to known ranges or remove the rule",
+                                steps=(
+                                    f"(Search Bar > EC2 > Security Groups > {group['GroupId']} > "
+                                    "Inbound rules > Edit inbound rules > Configure appropriate rules)"
+                                )
+                            ))
+
+    return findings
+
+
 if __name__ == "__main__":
     session = boto3.Session(profile_name="cspm") # Starts a session with local saved access keys
     findings = []
     findings += check_s3_public_access_block(session)
     findings += check_root_mfa(session)
     findings += check_access_key_age(session)
+    findings += check_open_ssh(session)
 
     if findings:
         # Highest severity is prioritized
