@@ -1,7 +1,7 @@
 import boto3
 from freezegun import freeze_time
 from moto import mock_aws
-from main import check_access_key_age
+from main import check_access_key_age, check_root_mfa
 
 @mock_aws
 def test_flag_old_active_key():
@@ -44,3 +44,15 @@ def test_unflagged_old_inactive_key():
     findings = check_access_key_age(session)
 
     assert len(findings) == 0
+
+@mock_aws
+def test_flag_root_without_mfa():
+    """Test 4: Flags root account if MFA is not enabled"""
+    session = boto3.Session(region_name="ap-southeast-2")
+    findings = check_root_mfa(session)
+
+    assert len(findings) == 1
+    assert findings[0].severity == 4
+    assert findings[0].check_id == "CIS-1.4"
+
+
