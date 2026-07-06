@@ -1,6 +1,7 @@
 import boto3
 from freezegun import freeze_time
 from moto import mock_aws
+
 from main import check_access_key_age, check_root_mfa
 
 @mock_aws
@@ -55,4 +56,8 @@ def test_flag_root_without_mfa():
     assert findings[0].severity == 4
     assert findings[0].check_id == "CIS-1.4"
 
-
+# Note: the passing test of check_root_mfa (AccountMFAEnabled=1) cannot be
+# simulated in moto: enable_mfa_device only works for IAM users (NoSuchEntity),
+# and enabling MFA on a regular user does not change AccountMFAEnabled for the root account.
+# Value shown for AccountMFAEnabled is strictly for the root account only.
+# Verified and tested on 2026-07-06.
