@@ -8,3 +8,4 @@ class Finding:
     severity: int
     description: str
     remediation: str
+    steps: str
