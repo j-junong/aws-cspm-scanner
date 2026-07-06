@@ -1,6 +1,7 @@
 import boto3
 
 from models import Finding
+from datetime import datetime, timezone
 
 def check_s3_public_access_block(session):
     """Check if bucket can be accessed by the public"""
@@ -39,9 +40,9 @@ def check_root_mfa(session):
     """Checks whether the root account has MFA enabled"""
     iam = session.client("iam")
     findings = []
-    summary = iam.get_account_summary()["SummaryMap"]
+    summary = iam.get_account_summary()['SummaryMap']
 
-    if not summary["AccountMFAEnabled"]: # 1 if enabled
+    if not summary['AccountMFAEnabled']: # 1 if enabled
         findings.append(Finding(
             check_id="CIS-1.4",
             resource="Root account",
@@ -53,11 +54,42 @@ def check_root_mfa(session):
 
     return findings
 
+def check_access_key_age(session, max_age=90):
+    """Checks whether the access key is older than 90 days"""
+    iam = session.client("iam")
+    findings = []
+
+    paginator = iam.get_paginator("list_users") # Keep calling list_users() until there are no more
+    for page in paginator.paginate(): # paginator.paginate() creates a list of pages
+        for user in page['Users']:
+            keys = iam.list_access_keys(UserName=user['UserName'])['AccessKeyMetadata']
+            for key in keys:
+                age = datetime.now(timezone.utc) - key['CreateDate']
+                if key['Status'] == "Active" and age.days > max_age:
+                    findings.append(Finding(
+                        check_id="CIS-1.13",
+                        resource=key['UserName'],
+                        severity=2,
+                        description=(
+                            f"{key['UserName']}'s access key ({key['AccessKeyId']}) "
+                            f"is older than {max_age} days. The access key is {age.days} days old."
+                        ),
+                        remediation="Generate new access keys",
+                        steps=(
+                            f"(Search Bar > IAM > IAM users > {key['UserName']} > Security credentials "
+                            "Access keys > Create Access Key > Update Applications with New Access Keys > "
+                            "Actions > Deactivate old key > Actions > Delete old key)"
+                        )
+                    ))
+
+    return findings
+
 if __name__ == "__main__":
     session = boto3.Session(profile_name="cspm") # Starts a session with local saved access keys
     findings = []
     findings += check_s3_public_access_block(session)
     findings += check_root_mfa(session)
+    findings += check_access_key_age(session)
 
     if findings:
         # Highest severity is prioritized
