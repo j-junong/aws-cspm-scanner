@@ -11,7 +11,7 @@ def test_flag_old_active_key():
         iam.create_user(UserName="old-user")
         iam.create_access_key(UserName="old-user")
 
-    session = boto3.Session(region_name="ap-southeast-2") # mock_aws doesn't take credentials
+    session = boto3.Session(region_name="ap-southeast-2") # moto doesn't take credentials
     findings = check_access_key_age(session)
 
     assert len(findings) == 1
@@ -24,6 +24,21 @@ def test_unflagged_fresh_key():
     iam = boto3.client("iam", region_name="ap-southeast-2")
     iam.create_user(UserName="fresh-user")
     iam.create_access_key(UserName="fresh-user")
+
+    session = boto3.Session(region_name="ap-southeast-2")
+    findings = check_access_key_age(session)
+
+    assert len(findings) == 0
+
+@mock_aws
+def test_unflagged_old_inactive_key():
+    """Test 3: Creates a user and inactive access key and does not flag it"""
+    with freeze_time("2020-01-01"):
+        iam = boto3.client("iam", region_name="ap-southeast-2")
+        iam.create_user(UserName="old-user")
+        response = iam.create_access_key(UserName="old-user")
+        key_id = response["AccessKey"]["AccessKeyId"]
+        iam.update_access_key(UserName="old-user", AccessKeyId=key_id, Status="Inactive")
 
     session = boto3.Session(region_name="ap-southeast-2")
     findings = check_access_key_age(session)
