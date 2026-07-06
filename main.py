@@ -26,18 +26,38 @@ def check_s3_public_access_block(session):
                 resource=name,
                 severity=3,
                 description=f"Bucket '{name}' does not block all public access.",
-                remediation=(
-                    f"Enable all four Block Public Access settings on bucket "
-                    f"'{name}' (S3 console > bucket > Permissions, or "
-                    f"aws s3api put-public-access-block)"
+                remediation="Enable all four Block Public Access settings on bucket",
+                steps=(
+                    f"(Search Bar > S3 > Bucket > {name} > Permissions > "
+                    "Block public access (bucket settings) > Edit > Tick Block all public access)"
                 )
             ))
 
     return findings
 
+def check_root_mfa(session):
+    """Checks whether the root account has MFA enabled"""
+    iam = session.client("iam")
+    findings = []
+    summary = iam.get_account_summary()["SummaryMap"]
+
+    if not summary["AccountMFAEnabled"]: # 1 if enabled
+        findings.append(Finding(
+            check_id="CIS-1.4",
+            resource="Root account",
+            severity=4,
+            description="Root account does not have MFA enabled.",
+            remediation="Add MFA to your account",
+            steps="(Search Bar > IAM > Security Recommendations > Add MFA)"
+        ))
+
+    return findings
+
 if __name__ == "__main__":
     session = boto3.Session(profile_name="cspm") # Starts a session with local saved access keys
-    findings = check_s3_public_access_block(session)
+    findings = []
+    findings += check_s3_public_access_block(session)
+    findings += check_root_mfa(session)
 
     if findings:
         # Highest severity is prioritized
@@ -48,5 +68,6 @@ if __name__ == "__main__":
             print(f"[SEV {f.severity}] {f.check_id} {f.resource}")
             print(f"  - {f.description}")
             print(f"  - {f.remediation}")
+            print(f"  - {f.steps}")
     else:
-        print("All buckets compliant")
+        print("No findings - All checks passed.")
