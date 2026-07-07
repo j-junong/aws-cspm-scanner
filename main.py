@@ -86,7 +86,7 @@ def check_access_key_age(session, max_age=90):
 
     return findings
 
-def check_open_ssh(session, port=22):
+def check_open_admin_port(session, port=22):
     """Flag security groups allowing ingress to specified port from the entire internet"""
     ec2 = session.client("ec2", region_name="ap-southeast-2")
     findings = []
@@ -106,14 +106,12 @@ def check_open_ssh(session, port=22):
                                 check_id="CIS-5.3",
                                 resource=f"{group['GroupName']} ({group['GroupId']}, {region['RegionName']})",
                                 severity=4,
-                                description=(
-                                    "Security groups allow ingress from 0.0.0.0/0 to remote "
-                                    "server administration ports"
-                                ),
+                                description=f"Security groups allow ingress from 0.0.0.0/0 to port {port}",
                                 remediation="Restrict the source CIDR to known ranges or remove the rule",
                                 steps=(
                                     f"(Search Bar > EC2 > Security Groups > {group['GroupId']} > "
-                                    "Inbound rules > Edit inbound rules > Configure appropriate rules)"
+                                    "Inbound rules > Edit inbound rules > Configure appropriate rules "
+                                    f"for port {port})"
                                 )
                             ))
                     for ipv6 in rule.get("Ipv6Ranges", []):
@@ -122,14 +120,12 @@ def check_open_ssh(session, port=22):
                                 check_id="CIS-5.4",
                                 resource=f"{group['GroupName']} ({group['GroupId']}, {region['RegionName']})",
                                 severity=4,
-                                description=(
-                                    "Security groups allow ingress from ::/0 to remote "
-                                    "server administration ports"
-                                ),
+                                description=f"Security groups allow ingress from ::/0 to port {port}",
                                 remediation="Restrict the source CIDR to known ranges or remove the rule",
                                 steps=(
                                     f"(Search Bar > EC2 > Security Groups > {group['GroupId']} > "
-                                    "Inbound rules > Edit inbound rules > Configure appropriate rules)"
+                                    "Inbound rules > Edit inbound rules > Configure appropriate rules "
+                                    f"for port {port})"
                                 )
                             ))
 
@@ -142,7 +138,8 @@ if __name__ == "__main__":
     findings += check_s3_public_access_block(session)
     findings += check_root_mfa(session)
     findings += check_access_key_age(session)
-    findings += check_open_ssh(session)
+    findings += check_open_admin_port(session)
+    findings += check_open_admin_port(session, port=3389)
 
     if findings:
         # Highest severity is prioritized
