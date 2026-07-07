@@ -87,7 +87,7 @@ def check_access_key_age(session, max_age=90):
     return findings
 
 def check_open_ssh(session, port=22):
-    """Flag security groups allowing ingress to port from the entire internet"""
+    """Flag security groups allowing ingress to specified port from the entire internet"""
     ec2 = session.client("ec2", region_name="ap-southeast-2")
     findings = []
 
