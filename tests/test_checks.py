@@ -2,7 +2,7 @@ import boto3
 from freezegun import freeze_time
 from moto import mock_aws
 
-from main import check_s3_public_access_block, check_access_key_age, check_root_mfa, check_open_ssh
+from main import check_s3_public_access_block, check_access_key_age, check_root_mfa, check_open_admin_port
 
 @mock_aws
 def test_flag_old_active_key():
@@ -84,7 +84,7 @@ def test_flag_open_ssh_ipv4():
     )
 
     session = boto3.Session(region_name="ap-southeast-2")
-    findings = check_open_ssh(session)
+    findings = check_open_admin_port(session)
 
     assert len(findings) == 1
     assert group_id in findings[0].resource
@@ -113,7 +113,7 @@ def test_flag_open_ssh_ipv6():
     )
 
     session = boto3.Session(region_name="ap-southeast-2")
-    findings = check_open_ssh(session)
+    findings = check_open_admin_port(session)
 
     assert len(findings) == 1
     assert group_id in findings[0].resource
@@ -142,7 +142,7 @@ def test_flag_open_ssh_other_region():
     )
 
     session = boto3.Session(region_name="ap-southeast-2")
-    findings = check_open_ssh(session)
+    findings = check_open_admin_port(session)
 
     assert len(findings) == 1
     assert group_id in findings[0].resource
@@ -172,7 +172,7 @@ def test_unflagged_https_open_to_world():
     )
 
     session = boto3.Session(region_name="ap-southeast-2")
-    findings = check_open_ssh(session)
+    findings = check_open_admin_port(session)
 
     assert len(findings) == 0
 
@@ -242,3 +242,32 @@ def test_flag_missing_public_access_block():
     assert findings[0].check_id == "CIS-2.1.4"
     assert findings[0].severity == 3
     assert "test-bucket" in findings[0].resource
+
+@mock_aws
+def test_flag_open_rdp():
+    """Test 12: Flags security group open to 0.0.0.0/0 on port 3389 (RDP)"""
+    ec2 = boto3.client("ec2", region_name="ap-southeast-2")
+    sg = ec2.create_security_group(
+        GroupName="bad-rdp",
+        Description="Bad rdp security group",
+    )
+    group_id = sg["GroupId"]
+    ec2.authorize_security_group_ingress(
+        GroupId=group_id,
+        IpPermissions=[
+            {
+                "IpProtocol": "tcp",
+                "FromPort": 3389,
+                "ToPort": 3389,
+                "IpRanges": [{"CidrIp": "0.0.0.0/0"}],
+            }
+        ],
+    )
+
+    session = boto3.Session(region_name="ap-southeast-2")
+    findings = check_open_admin_port(session, port=3389)
+
+    assert len(findings) == 1
+    assert group_id in findings[0].resource
+    assert findings[0].severity == 4
+    assert findings[0].check_id == "CIS-5.3"
