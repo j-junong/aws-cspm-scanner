@@ -2,7 +2,7 @@ import boto3
 from freezegun import freeze_time
 from moto import mock_aws
 
-from main import check_access_key_age, check_root_mfa, check_open_ssh
+from main import check_s3_public_access_block, check_access_key_age, check_root_mfa, check_open_ssh
 
 @mock_aws
 def test_flag_old_active_key():
@@ -85,7 +85,6 @@ def test_flag_open_ssh_ipv4():
 
     session = boto3.Session(region_name="ap-southeast-2")
     findings = check_open_ssh(session)
-    print(findings)
 
     assert len(findings) == 1
     assert group_id in findings[0].resource
@@ -176,3 +175,70 @@ def test_unflagged_https_open_to_world():
     findings = check_open_ssh(session)
 
     assert len(findings) == 0
+
+@mock_aws
+def test_unflagged_ticked_public_access_block():
+    """Test 9: Does not flag buckets with enabled public access block permissions"""
+    s3 = boto3.client("s3", region_name="ap-southeast-2")
+    s3.create_bucket(
+        Bucket="test-bucket",
+        CreateBucketConfiguration={"LocationConstraint": "ap-southeast-2"},
+    )
+    s3.put_public_access_block(
+        Bucket="test-bucket",
+        PublicAccessBlockConfiguration={
+            "BlockPublicAcls": True,
+            "BlockPublicPolicy": True,
+            "IgnorePublicAcls": True,
+            "RestrictPublicBuckets": True,
+        }
+    )
+
+    session = boto3.Session(region_name="ap-southeast-2")
+    findings = check_s3_public_access_block(session)
+
+    assert len(findings) == 0
+
+@mock_aws
+def test_flag_unticked_public_access_block():
+    """Test 10: Flag buckets with disabled public access block permissions"""
+    s3 = boto3.client("s3", region_name="ap-southeast-2")
+    s3.create_bucket(
+        Bucket="test-bucket",
+        CreateBucketConfiguration={"LocationConstraint": "ap-southeast-2"},
+    )
+    s3.put_public_access_block(
+        Bucket="test-bucket",
+        PublicAccessBlockConfiguration={
+            "BlockPublicAcls": False,
+            "BlockPublicPolicy": False,
+            "IgnorePublicAcls": False,
+            "RestrictPublicBuckets": False,
+        }
+    )
+
+    session = boto3.Session(region_name="ap-southeast-2")
+    findings = check_s3_public_access_block(session)
+
+    assert len(findings) == 1
+    assert "CIS-2.1.4" in findings[0].check_id
+    assert findings[0].severity == 3
+    assert "test-bucket" in findings[0].resource
+
+@mock_aws
+def test_flag_missing_public_access_block():
+    """Test 11: Flag buckets with missing public access block permissions"""
+    s3 = boto3.client("s3", region_name="ap-southeast-2")
+    s3.create_bucket(
+        Bucket="test-bucket",
+        CreateBucketConfiguration={"LocationConstraint": "ap-southeast-2"},
+    )
+    s3.delete_public_access_block(Bucket="test-bucket")
+
+    session = boto3.Session(region_name="ap-southeast-2")
+    findings = check_s3_public_access_block(session)
+
+    assert len(findings) == 1
+    assert findings[0].check_id == "CIS-2.1.4"
+    assert findings[0].severity == 3
+    assert "test-bucket" in findings[0].resource
