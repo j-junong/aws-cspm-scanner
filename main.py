@@ -167,9 +167,10 @@ if __name__ == "__main__":
 
         print(f"{len(findings)} findings:")
         for f in findings:
-            print(f"[SEV {f.severity}] {f.check_id} {f.resource}")
-            print(f"  - {f.description}")
-            print(f"  - {f.remediation}")
-            print(f"  - {f.steps}")
+            print(f"[SEVERITY {f.severity}] {f.check_id}")
+            print(f"  Resource    - {f.resource}")
+            print(f"  Description - {f.description}")
+            print(f"  Remediation - {f.remediation}")
+            print(f"  Steps       - {f.steps}")
     else:
         print("No findings - All checks passed.")
