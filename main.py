@@ -1,7 +1,9 @@
 import boto3
+import argparse
 
 from models import Finding
 from datetime import datetime, timezone
+from report import print_console_report, write_json_report
 
 def check_s3_public_access_block(session):
     """Check if bucket can be accessed by the public"""
@@ -152,7 +154,12 @@ def check_root_user_access_keys(session):
 
 
 if __name__ == "__main__":
-    session = boto3.Session(profile_name="cspm") # Starts a session with local saved access keys
+    parser = argparse.ArgumentParser(description="CSPM scanner for AWS - CIS v5.0.0 checks")
+    parser.add_argument("--profile", default="cspm", help="AWS profile to use")
+    parser.add_argument("--json", metavar="PATH", help="write findings to a JSON file")
+    args = parser.parse_args()
+
+    session = boto3.Session(profile_name=args.profile)  # Starts a session with local saved access keys
     findings = []
     findings += check_s3_public_access_block(session)
     findings += check_root_mfa(session)
@@ -161,16 +168,8 @@ if __name__ == "__main__":
     findings += check_open_admin_port(session, port=3389)
     findings += check_root_user_access_keys(session)
 
-    if findings:
-        # Highest severity is prioritized
-        findings.sort(key=lambda x: x.severity, reverse=True)
+    findings.sort(key=lambda x: x.severity, reverse=True) # Highest severity is prioritized
 
-        print(f"{len(findings)} findings:")
-        for f in findings:
-            print(f"[SEVERITY {f.severity}] {f.check_id}")
-            print(f"  Resource    - {f.resource}")
-            print(f"  Description - {f.description}")
-            print(f"  Remediation - {f.remediation}")
-            print(f"  Steps       - {f.steps}")
-    else:
-        print("No findings - All checks passed.")
+    print_console_report(findings)
+    if args.json:
+        write_json_report(findings, args.json)
