@@ -1,6 +1,4 @@
 import boto3
-from moto.utilities import paginator
-from requests import session
 
 from models import Finding
 from datetime import datetime, timezone
@@ -131,6 +129,27 @@ def check_open_admin_port(session, port=22):
 
     return findings
 
+def check_root_user_access_keys(session):
+    """Flag if the root user access keys exist"""
+    iam = session.client("iam")
+    summary = iam.get_account_summary()['SummaryMap']
+    findings = []
+
+    if summary['AccountAccessKeysPresent'] > 0:
+        findings.append(Finding(
+            check_id="CIS-1.3",
+            resource="Root account",
+            severity=4,
+            description="Access keys for root account exist",
+            remediation="Delete root account access keys",
+            steps=(
+                "(Sign in as root user > Click on root username (top right) > Security credentials > "
+                "Access keys > Select access keys > Actions > Deactivate > Delete)"
+            )
+        ))
+
+    return findings
+
 
 if __name__ == "__main__":
     session = boto3.Session(profile_name="cspm") # Starts a session with local saved access keys
@@ -140,6 +159,7 @@ if __name__ == "__main__":
     findings += check_access_key_age(session)
     findings += check_open_admin_port(session)
     findings += check_open_admin_port(session, port=3389)
+    findings += check_root_user_access_keys(session)
 
     if findings:
         # Highest severity is prioritized
