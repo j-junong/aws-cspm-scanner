@@ -2,7 +2,7 @@ import boto3
 from freezegun import freeze_time
 from moto import mock_aws
 
-from main import check_s3_public_access_block, check_access_key_age, check_root_mfa, check_open_admin_port
+from main import check_s3_public_access_block, check_access_key_age, check_root_mfa, check_open_admin_port, check_root_user_access_keys
 
 @mock_aws
 def test_flag_old_active_key():
@@ -271,3 +271,18 @@ def test_flag_open_rdp():
     assert group_id in findings[0].resource
     assert findings[0].severity == 4
     assert findings[0].check_id == "CIS-5.3"
+
+@mock_aws
+def test_unflagged_existing_iam_access_keys():
+    iam = boto3.client("iam", region_name="ap-southeast-2")
+    iam.create_user(UserName="root")
+    iam.create_access_key(UserName="root")
+
+    session = boto3.Session(region_name="ap-southeast-2")
+    findings = check_root_user_access_keys(session)
+
+    assert findings == []
+
+# Unable to flag if root account access keys exist in moto as create_access_key() only works
+# for IAM users only. AccountAccessKeysPresent cannot be raised via API (root keys have no
+# API creation route). Verified against real AWS with a temp root key.
