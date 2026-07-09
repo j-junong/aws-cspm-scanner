@@ -56,7 +56,7 @@ def test_flag_root_without_mfa():
     assert findings[0].severity == 4
     assert findings[0].check_id == "CIS-1.4"
 
-# Note: the passing test of check_root_mfa (AccountMFAEnabled=1) cannot be
+# The passing test of check_root_mfa (AccountMFAEnabled=1) cannot be
 # simulated in moto: enable_mfa_device only works for IAM users (NoSuchEntity),
 # and enabling MFA on a regular user does not change AccountMFAEnabled for the root account.
 # Value shown for AccountMFAEnabled is strictly for the root account only.
@@ -285,4 +285,5 @@ def test_unflagged_existing_iam_access_keys():
 
 # Unable to flag if root account access keys exist in moto as create_access_key() only works
 # for IAM users only. AccountAccessKeysPresent cannot be raised via API (root keys have no
-# API creation route). Verified against real AWS with a temp root key.
+# API creation route).
+# Verified against real AWS with a temp root key.
