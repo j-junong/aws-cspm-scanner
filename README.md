@@ -1,5 +1,4 @@
 # AWS CSPM Scanner
-
 A Python-based Cloud Security Posture Management tool that 
 scans an AWS account for misconfigurations against the CIS
 AWS Foundations Benchmark v5.0.0 and produces prioritized 

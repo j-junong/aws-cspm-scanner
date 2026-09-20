@@ -1,5 +1,6 @@
 import boto3
 import argparse
+import json
 
 from models import Finding
 from datetime import datetime, timezone
@@ -152,6 +153,48 @@ def check_root_user_access_keys(session):
 
     return findings
 
+def policy_denies_insecure_transport(policy):
+    """True if any statement in the bucket policy denies non-TLS requests."""
+    for statement in policy.get("Statement", []):
+        condition = statement.get("Condition", {})
+        secure_transport = condition.get("Bool", {}).get("aws:SecureTransport")
+        if statement.get("Effect") == "Deny" and secure_transport == "false":
+            return True   # Found a statement enforcing TLS
+    return False
+
+def check_s3_tls_requirement(session):
+    """Flag S3 buckets that do not require TTLS for requests"""
+    s3 = session.client("s3")
+    findings = []
+
+    for bucket in s3.list_buckets()['Buckets']:
+        name = bucket['Name']
+        try:
+            response = s3.get_bucket_policy(Bucket=name)
+            policy = json.loads(response['Policy']) # Policy is a JSON string
+            tls_enforce = policy_denies_insecure_transport(policy)
+        except s3.exceptions.ClientError as e:      # No policy will raise an error
+            if e.response['Error']['Code'] == 'NoSuchBucketPolicy':
+                tls_enforce = False                 # Because if no TLS then it cannot deny HTTP
+            else:
+                raise
+
+        if not tls_enforce:
+            findings.append(Finding(
+                check_id="CIS-2.1.1",
+                resource=name,
+                severity=2,
+                description=f"Bucket '{name}' does not enforce TLS for requests",
+                remediation="Add a bucket policy denying requests where aws:SecureTransport is false",
+                steps=(
+                    f"(Search Bar > S3 > Bucket > {name} > Permissions > "
+                    "Bucket policy > Edit > Add a Deny statement with "
+                    "Condition Bool aws:SecureTransport false)"
+                )
+            ))
+
+    return findings
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="CSPM scanner for AWS - CIS v5.0.0 checks")
@@ -161,12 +204,13 @@ if __name__ == "__main__":
 
     session = boto3.Session(profile_name=args.profile)  # Starts a session with local saved access keys
     findings = []
-    findings += check_s3_public_access_block(session)
-    findings += check_root_mfa(session)
-    findings += check_access_key_age(session)
-    findings += check_open_admin_port(session)
-    findings += check_open_admin_port(session, port=3389)
-    findings += check_root_user_access_keys(session)
+    # findings += check_s3_public_access_block(session)
+    # findings += check_root_mfa(session)
+    # findings += check_access_key_age(session)
+    # findings += check_open_admin_port(session)
+    # findings += check_open_admin_port(session, port=3389)
+    # findings += check_root_user_access_keys(session)
+    findings += check_s3_tls_requirement(session)
 
     findings.sort(key=lambda x: x.severity, reverse=True) # Highest severity is prioritized
 

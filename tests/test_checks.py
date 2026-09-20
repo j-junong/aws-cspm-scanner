@@ -1,8 +1,9 @@
 import boto3
+import json
 from freezegun import freeze_time
 from moto import mock_aws
 
-from main import check_s3_public_access_block, check_access_key_age, check_root_mfa, check_open_admin_port, check_root_user_access_keys
+from main import check_s3_public_access_block, check_access_key_age, check_root_mfa, check_open_admin_port, check_root_user_access_keys, check_s3_tls_requirement
 
 @mock_aws
 def test_flag_old_active_key():
@@ -287,3 +288,81 @@ def test_unflagged_existing_iam_access_keys():
 # for IAM users only. AccountAccessKeysPresent cannot be raised via API (root keys have no
 # API creation route).
 # Verified against real AWS with a temp root key.
+
+@mock_aws
+def test_flag_bucket_without_tls_policy():
+    """Test 14: Flags a bucket with no bucket policy at all"""
+    s3 = boto3.client("s3", region_name="ap-southeast-2")
+    s3.create_bucket(
+        Bucket="no-policy-bucket",
+        CreateBucketConfiguration={"LocationConstraint": "ap-southeast-2"},
+    )
+
+    session = boto3.Session(region_name="ap-southeast-2")
+    findings = check_s3_tls_requirement(session)
+
+    assert len(findings) == 1
+    assert findings[0].check_id == "CIS-2.1.1"
+    assert "no-policy-bucket" in findings[0].resource
+
+@mock_aws
+def test_unflagged_bucket_with_tls_policy():
+    """Test 15: Does not flag a bucket whose policy denies non-TLS requests"""
+    s3 = boto3.client("s3", region_name="ap-southeast-2")
+    s3.create_bucket(
+        Bucket="tls-bucket",
+        CreateBucketConfiguration={"LocationConstraint": "ap-southeast-2"},
+    )
+
+    policy = {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Sid": "DenyInsecureTransport",
+                "Effect": "Deny",
+                "Principal": "*",
+                "Action": "s3:*",
+                "Resource": [
+                    "arn:aws:s3:::tls-bucket",
+                    "arn:aws:s3:::tls-bucket/*",
+                ],
+                "Condition": {"Bool": {"aws:SecureTransport": "false"}},
+            }
+        ],
+    }
+    s3.put_bucket_policy(Bucket="tls-bucket", Policy=json.dumps(policy))
+
+    session = boto3.Session(region_name="ap-southeast-2")
+    findings = check_s3_tls_requirement(session)
+
+    assert findings == []
+
+@mock_aws
+def test_flag_bucket_with_unrelated_policy():
+    """Test 16: Flags a bucket whose policy is unrelated"""
+    s3 = boto3.client("s3", region_name="ap-southeast-2")
+    s3.create_bucket(
+        Bucket="tls-bucket",
+        CreateBucketConfiguration={"LocationConstraint": "ap-southeast-2"},
+    )
+
+    policy = {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Sid": "AllowPublicRead",
+                "Effect": "Allow",
+                "Principal": "*",
+                "Action": "s3:GetObject",
+                "Resource": "arn:aws:s3:::other-policy-bucket/*",
+            }
+        ],
+    }
+    s3.put_bucket_policy(Bucket="tls-bucket", Policy=json.dumps(policy))
+
+    session = boto3.Session(region_name="ap-southeast-2")
+    findings = check_s3_tls_requirement(session)
+
+    assert len(findings) == 1
+    assert findings[0].check_id == "CIS-2.1.1"
+    assert "tls-bucket" in findings[0].resource
