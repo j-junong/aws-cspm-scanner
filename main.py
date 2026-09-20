@@ -195,6 +195,28 @@ def check_s3_tls_requirement(session):
 
     return findings
 
+def check_cloudtrail_enabled(session):
+    """Flag if the account has no multi-region CloudTrail trail"""
+    cloudtrail = session.client("cloudtrail", region_name="ap-southeast-2")
+    findings = []
+
+    trails = cloudtrail.describe_trails()["trailList"]
+    multi_region = any(trail.get("IsMultiRegionTrail") for trail in trails)
+
+    if not multi_region:
+        findings.append(Finding(
+            check_id="CIS-3.1",
+            resource="Account CloudTrail configuration",
+            severity=4,
+            description="No multi-region CloudTrail trail is configured for this account",
+            remediation="Create a CloudTrail trail applied to all regions",
+            steps=(
+                "(Search Bar > CloudTrail > Trails > Create a trail > "
+                "Enable for all regions > Create)"
+            )
+        ))
+
+    return findings
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="CSPM scanner for AWS - CIS v5.0.0 checks")
@@ -210,7 +232,8 @@ if __name__ == "__main__":
     # findings += check_open_admin_port(session)
     # findings += check_open_admin_port(session, port=3389)
     # findings += check_root_user_access_keys(session)
-    findings += check_s3_tls_requirement(session)
+    # findings += check_s3_tls_requirement(session)
+    findings += check_cloudtrail_enabled(session)
 
     findings.sort(key=lambda x: x.severity, reverse=True) # Highest severity is prioritized
 

@@ -3,7 +3,8 @@ import json
 from freezegun import freeze_time
 from moto import mock_aws
 
-from main import check_s3_public_access_block, check_access_key_age, check_root_mfa, check_open_admin_port, check_root_user_access_keys, check_s3_tls_requirement
+from main import check_s3_public_access_block, check_access_key_age, check_root_mfa, check_open_admin_port, \
+    check_root_user_access_keys, check_s3_tls_requirement, check_cloudtrail_enabled
 
 @mock_aws
 def test_flag_old_active_key():
@@ -366,3 +367,57 @@ def test_flag_bucket_with_unrelated_policy():
     assert len(findings) == 1
     assert findings[0].check_id == "CIS-2.1.1"
     assert "tls-bucket" in findings[0].resource
+
+@mock_aws
+def test_flag_no_cloudtrail():
+    """Test 17: Flags an account with no CloudTrail trail configured"""
+    session = boto3.Session(region_name="ap-southeast-2")
+    findings = check_cloudtrail_enabled(session)
+
+    assert len(findings) == 1
+    assert findings[0].check_id == "CIS-3.1"
+    assert findings[0].severity == 4
+
+@mock_aws
+def test_unflagged_multiregion_trail():
+    """Test 18: Does not flag an account with a multi-region trail"""
+    s3 = boto3.client("s3", region_name="ap-southeast-2")
+    s3.create_bucket(
+        Bucket="trail-logs-bucket",
+        CreateBucketConfiguration={"LocationConstraint": "ap-southeast-2"},
+    )
+
+    cloudtrail = boto3.client("cloudtrail", region_name="ap-southeast-2")
+    cloudtrail.create_trail(
+        Name="account-trail",
+        S3BucketName="trail-logs-bucket",
+        IsMultiRegionTrail=True,
+    )
+
+    session = boto3.Session(region_name="ap-southeast-2")
+    findings = check_cloudtrail_enabled(session)
+
+    assert findings == []
+
+@mock_aws
+def test_flag_singleregion_trail():
+    """Test 19: Flags an account with a single-region trail"""
+    s3 = boto3.client("s3", region_name="ap-southeast-2")
+    s3.create_bucket(
+        Bucket="trail-logs-bucket",
+        CreateBucketConfiguration={"LocationConstraint": "ap-southeast-2"},
+    )
+
+    cloudtrail = boto3.client("cloudtrail", region_name="ap-southeast-2")
+    cloudtrail.create_trail(
+        Name="account-trail",
+        S3BucketName="trail-logs-bucket",
+        IsMultiRegionTrail=False,
+    )
+
+    session = boto3.Session(region_name="ap-southeast-2")
+    findings = check_cloudtrail_enabled(session)
+
+    assert len(findings) == 1
+    assert findings[0].check_id == "CIS-3.1"
+    assert findings[0].severity == 4
