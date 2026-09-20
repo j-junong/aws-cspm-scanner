@@ -211,8 +211,7 @@ def check_cloudtrail_enabled(session):
             description="No multi-region CloudTrail trail is configured for this account",
             remediation="Create a CloudTrail trail applied to all regions",
             steps=(
-                "(Search Bar > CloudTrail > Trails > Create a trail > "
-                "Enable for all regions > Create)"
+                "(Search Bar > CloudTrail > Trails > Create a trail)"
             )
         ))
 
