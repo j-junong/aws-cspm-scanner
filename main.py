@@ -217,6 +217,52 @@ def check_cloudtrail_enabled(session):
 
     return findings
 
+def check_password_min_length(session, min_length=14):
+    """Flag if the IAM password policy does not require a minimum length (CIS 1.7)."""
+    iam = session.client("iam")
+    findings = []
+
+    try:
+        policy = iam.get_account_password_policy()["PasswordPolicy"]
+        compliant = policy.get("MinimumPasswordLength", 0) >= min_length
+    except iam.exceptions.NoSuchEntityException:
+        compliant = False       # No policy at all means no minimum length enforced
+
+    if not compliant:
+        findings.append(Finding(
+            check_id="CIS-1.7",
+            resource="Account password policy",
+            severity=2,
+            description=f"IAM password policy does not require a minimum length of {min_length}",
+            remediation=f"Set the minimum password length to {min_length} or greater",
+            steps="(Search Bar > IAM > Account settings > Password policy > Edit > Custom > Set to 14)",
+        ))
+
+    return findings
+
+def check_password_reuse_prevention(session):
+    """Flag if the IAM password policy does not prevent password reuse (CIS 1.8)."""
+    iam = session.client("iam")
+    findings = []
+
+    try:
+        policy = iam.get_account_password_policy()["PasswordPolicy"]
+        compliant = policy.get("PasswordReusePrevention") is not None
+    except iam.exceptions.NoSuchEntityException:
+        compliant = False
+
+    if not compliant:
+        findings.append(Finding(
+            check_id="CIS-1.8",
+            resource="Account password policy",
+            severity=2,
+            description=f"Password reuse prevention is disabled",
+            remediation=f"Enable password reuse prevention",
+            steps="(Search Bar > IAM > Account settings > Password policy > Edit > Custom > Tick 'Prevent password reuse')",
+        ))
+
+    return findings
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="CSPM scanner for AWS - CIS v5.0.0 checks")
     parser.add_argument("--profile", default="cspm", help="AWS profile to use")
@@ -232,7 +278,9 @@ if __name__ == "__main__":
     # findings += check_open_admin_port(session, port=3389)
     # findings += check_root_user_access_keys(session)
     # findings += check_s3_tls_requirement(session)
-    findings += check_cloudtrail_enabled(session)
+    # findings += check_cloudtrail_enabled(session)
+    findings += check_password_min_length(session)
+    findings += check_password_reuse_prevention(session)
 
     findings.sort(key=lambda x: x.severity, reverse=True) # Highest severity is prioritized
 
