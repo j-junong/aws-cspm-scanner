@@ -4,7 +4,7 @@ from freezegun import freeze_time
 from moto import mock_aws
 
 from main import check_s3_public_access_block, check_access_key_age, check_root_mfa, check_open_admin_port, \
-    check_root_user_access_keys, check_s3_tls_requirement, check_cloudtrail_enabled, check_password_min_length, check_password_reuse_prevention, check_iam_user_mfa
+    check_root_user_access_keys, check_s3_tls_requirement, check_cloudtrail_enabled, check_password_min_length, check_password_reuse_prevention, check_iam_user_mfa, check_unused_credentials
 
 @mock_aws
 def test_flag_old_active_key():
@@ -525,3 +525,23 @@ def test_unflagged_user_without_mfa_and_console_password():
     findings = check_iam_user_mfa(session)
 
     assert findings == []
+
+# Note: the stale-credential path of check_unused_credentials cannot be tested
+# in moto: get_access_key_last_used never returns a LastUsedDate (moto reports
+# ServiceName/Region as "N/A" and omits the date), and unlike CreateDate it is
+# not set at creation, so freeze_time cannot backdate it. The never-used path
+# is covered; the stale path is verified by inspection against real AWS output.
+
+@mock_aws
+def test_flag_never_used_key():
+    """Test 28: Flags an active access key that has never been used"""
+    iam = boto3.client("iam", region_name="ap-southeast-2")
+    iam.create_user(UserName="unused-key-user")
+    iam.create_access_key(UserName="unused-key-user")
+
+    session = boto3.Session(region_name="ap-southeast-2")
+    findings = check_unused_credentials(session)
+
+    assert len(findings) == 1
+    assert findings[0].check_id == "CIS-1.11"
+    assert "unused-key-user" in findings[0].resource

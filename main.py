@@ -292,6 +292,58 @@ def check_iam_user_mfa(session):
 
     return findings
 
+def check_unused_credentials(session, max_unused_days=45):
+    """Flag active access keys that are unused or have never been used (CIS 1.11)."""
+    iam = session.client("iam")
+    findings = []
+
+    paginator = iam.get_paginator("list_users")
+    for page in paginator.paginate():
+        for user in page["Users"]:
+            name = user["UserName"]
+            keys = iam.list_access_keys(UserName=name)["AccessKeyMetadata"]
+
+            for key in keys:
+                if key["Status"] != "Active":
+                    continue
+
+                key_id = key["AccessKeyId"]
+                last_used = iam.get_access_key_last_used(AccessKeyId=key_id)["AccessKeyLastUsed"]
+                last_used_date = last_used.get("LastUsedDate")  # Absent if never used
+
+                if last_used_date is None:
+                    findings.append(Finding(
+                        check_id="CIS-1.11",
+                        resource=f"{name} ({key_id})",
+                        severity=2,
+                        description=f"Access key {key_id} for IAM user {name} has never been used",
+                        remediation="Delete the unused access key",
+                        steps=(
+                            f"(Search Bar > IAM > IAM users > {name} > Security credentials > "
+                            "Access keys > Actions > Deactivate > Actions > Delete)"
+                        ),
+                    ))
+                    continue
+
+                unused_days = (datetime.now(timezone.utc) - last_used_date).days
+                if unused_days > max_unused_days:
+                    findings.append(Finding(
+                        check_id="CIS-1.11",
+                        resource=f"{name} ({key_id})",
+                        severity=2,
+                        description=(
+                            f"Access key {key_id} for IAM user {name} has not been used "
+                            f"in {unused_days} days"
+                        ),
+                        remediation="Delete the credential if it is no longer needed",
+                        steps=(
+                            f"(Search Bar > IAM > Users > {name} > Security credentials > "
+                            "Access keys > Actions > Deactivate > Actions > Delete)"
+                        ),
+                    ))
+
+    return findings
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="CSPM scanner for AWS - CIS v5.0.0 checks")
     parser.add_argument("--profile", default="cspm", help="AWS profile to use")
@@ -310,7 +362,8 @@ if __name__ == "__main__":
     # findings += check_cloudtrail_enabled(session)
     # findings += check_password_min_length(session)
     # findings += check_password_reuse_prevention(session)
-    findings += check_iam_user_mfa(session)
+    # findings += check_iam_user_mfa(session)
+    findings += check_unused_credentials(session)
 
     findings.sort(key=lambda x: x.severity, reverse=True) # Highest severity is prioritized
 
