@@ -4,7 +4,7 @@ from freezegun import freeze_time
 from moto import mock_aws
 
 from main import check_s3_public_access_block, check_access_key_age, check_root_mfa, check_open_admin_port, \
-    check_root_user_access_keys, check_s3_tls_requirement, check_cloudtrail_enabled, check_password_min_length, check_password_reuse_prevention
+    check_root_user_access_keys, check_s3_tls_requirement, check_cloudtrail_enabled, check_password_min_length, check_password_reuse_prevention, check_iam_user_mfa
 
 @mock_aws
 def test_flag_old_active_key():
@@ -477,5 +477,51 @@ def test_unflagged_reuse_prevention_set():
 
     session = boto3.Session(region_name="ap-southeast-2")
     findings = check_password_reuse_prevention(session)
+
+    assert findings == []
+
+@mock_aws
+def test_flag_console_user_without_mfa():
+    """Test 25: Flags an IAM user with a console password but no MFA device"""
+    iam = boto3.client("iam", region_name="ap-southeast-2")
+    iam.create_user(UserName="console-user")
+    iam.create_login_profile(UserName="console-user", Password="temp")
+
+    session = boto3.Session(region_name="ap-southeast-2")
+    findings = check_iam_user_mfa(session)
+
+    assert len(findings) == 1
+    assert findings[0].check_id == "CIS-1.9"
+    assert "console-user" in findings[0].resource
+
+@mock_aws
+def test_unflagged_console_user_with_mfa():
+    """Test 26: Does not flag an IAM user who has a console password and an MFA device"""
+    iam = boto3.client("iam", region_name="ap-southeast-2")
+    iam.create_user(UserName="mfa-user")
+    iam.create_login_profile(UserName="mfa-user", Password="TempPassword123!")
+
+    device = iam.create_virtual_mfa_device(VirtualMFADeviceName="mfa-user-device")
+    serial = device["VirtualMFADevice"]["SerialNumber"]
+    iam.enable_mfa_device(
+        UserName="mfa-user",
+        SerialNumber=serial,
+        AuthenticationCode1="123456",
+        AuthenticationCode2="654321",
+    )
+
+    session = boto3.Session(region_name="ap-southeast-2")
+    findings = check_iam_user_mfa(session)
+
+    assert findings == []
+
+@mock_aws
+def test_unflagged_user_without_mfa_and_console_password():
+    """Test 27: Does not flag an IAM user with no console password, even without MFA"""
+    iam = boto3.client("iam", region_name="ap-southeast-2")
+    iam.create_user(UserName="temp-user")
+
+    session = boto3.Session(region_name="ap-southeast-2")
+    findings = check_iam_user_mfa(session)
 
     assert findings == []
