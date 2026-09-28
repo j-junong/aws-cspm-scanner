@@ -4,7 +4,7 @@ from freezegun import freeze_time
 from moto import mock_aws
 
 from main import check_s3_public_access_block, check_access_key_age, check_root_mfa, check_open_admin_port, \
-    check_root_user_access_keys, check_s3_tls_requirement, check_cloudtrail_enabled
+    check_root_user_access_keys, check_s3_tls_requirement, check_cloudtrail_enabled, check_password_min_length, check_password_reuse_prevention
 
 @mock_aws
 def test_flag_old_active_key():
@@ -421,3 +421,61 @@ def test_flag_singleregion_trail():
     assert len(findings) == 1
     assert findings[0].check_id == "CIS-3.1"
     assert findings[0].severity == 4
+
+@mock_aws
+def test_flag_missing_password_policy():
+    """Test 20: Flags an account with no password policy at all"""
+    session = boto3.Session(region_name="ap-southeast-2")
+    findings = check_password_min_length(session)
+
+    assert len(findings) == 1
+    assert findings[0].check_id == "CIS-1.7"
+
+@mock_aws
+def test_flag_short_password():
+    """Test 21: Flags an account with a password length less than 14"""
+    iam = boto3.client("iam")
+    iam.update_account_password_policy(MinimumPasswordLength=8)
+
+    session = boto3.Session(region_name="ap-southeast-2")
+    findings = check_password_min_length(session)
+
+    assert len(findings) == 1
+    assert findings[0].check_id == "CIS-1.7"
+
+@mock_aws
+def test_unflagged_compliant_password():
+    """Test 22: Does not flag an account with a password length equal to 14"""
+    iam = boto3.client("iam")
+    iam.update_account_password_policy(MinimumPasswordLength=14)
+
+    session = boto3.Session(region_name="ap-southeast-2")
+    findings = check_password_min_length(session)
+
+    assert findings == []
+
+@mock_aws
+def test_flag_no_reuse_prevention():
+    """Test 23: Flags an account with no password reuse prevention"""
+    iam = boto3.client("iam")
+    iam.update_account_password_policy(MinimumPasswordLength=14)
+
+    session = boto3.Session(region_name="ap-southeast-2")
+    findings = check_password_reuse_prevention(session)
+
+    assert len(findings) == 1
+    assert findings[0].check_id == "CIS-1.8"
+
+@mock_aws
+def test_unflagged_reuse_prevention_set():
+    """Test 24: Does not flag an account whose password policy prevents password reuse"""
+    iam = boto3.client("iam")
+    iam.update_account_password_policy(
+        MinimumPasswordLength=14,
+        PasswordReusePrevention=24,
+    )
+
+    session = boto3.Session(region_name="ap-southeast-2")
+    findings = check_password_reuse_prevention(session)
+
+    assert findings == []
