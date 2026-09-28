@@ -263,6 +263,35 @@ def check_password_reuse_prevention(session):
 
     return findings
 
+def check_iam_user_mfa(session):
+    """Flag IAM users with a console password but no MFA set"""
+    iam = session.client("iam")
+    findings = []
+
+    paginator = iam.get_paginator("list_users")
+    for page in paginator.paginate():
+        for user in page["Users"]:
+            name = user["UserName"]
+
+            try:
+                iam.get_login_profile(UserName=name)
+            except iam.exceptions.NoSuchEntityException:
+                continue          # No console password, skip
+
+            devices = iam.list_mfa_devices(UserName=name)["MFADevices"]
+            if not devices:
+                findings.append(Finding(
+                    check_id="CIS-1.9",
+                    resource=name,
+                    severity=3,
+                    description=f"IAM user {name} has console password but no MFA set",
+                    remediation=f"Enable MFA for IAM user {name}",
+                    steps=f"(Search Bar > IAM > IAM users > {name} > Security credentials > "
+                          "Multi-factor authentication (MFA) > Assign MFA device)"
+                ))
+
+    return findings
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="CSPM scanner for AWS - CIS v5.0.0 checks")
     parser.add_argument("--profile", default="cspm", help="AWS profile to use")
@@ -279,8 +308,9 @@ if __name__ == "__main__":
     # findings += check_root_user_access_keys(session)
     # findings += check_s3_tls_requirement(session)
     # findings += check_cloudtrail_enabled(session)
-    findings += check_password_min_length(session)
-    findings += check_password_reuse_prevention(session)
+    # findings += check_password_min_length(session)
+    # findings += check_password_reuse_prevention(session)
+    findings += check_iam_user_mfa(session)
 
     findings.sort(key=lambda x: x.severity, reverse=True) # Highest severity is prioritized
 
